@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -6,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Lector de Billetes Accesible</title>
   
-  <!-- Carga de Librerías de Teachable Machine y TensorFlow.js -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8.3/dist/teachablemachine-image.min.js"></script>
 
@@ -76,6 +74,22 @@
       border-radius: 12px;
       overflow: hidden;
     }
+
+    #label-container {
+      width: 100%;
+      max-width: 400px;
+      margin: 15px 0;
+    }
+
+    .label-row {
+      display: flex;
+      justify-content: space-between;
+      background: var(--card);
+      padding: 10px 15px;
+      margin-bottom: 5px;
+      border-radius: 8px;
+      font-size: 1.1rem;
+    }
   </style>
 </head>
 <body>
@@ -87,6 +101,7 @@
   <div id="status" aria-live="polite" role="status">Presiona "Iniciar Cámara Detector"</div>
 
   <div id="webcam-container"></div>
+  <div id="label-container"></div>
 
   <button id="toggle-tutor" class="btn-large" aria-pressed="false" onclick="toggleModoTutor()">
     Activar Modo Tutor (Entrenamiento)
@@ -104,15 +119,14 @@
 
 <script>
   const URL = "./"; 
-  let model, webcam, maxPredictions;
+  let model, webcam, labelContainer, maxPredictions;
   let ultimaClaseDetectada = null;
 
-  // Patrones de vibración únicamente para 4 clases ($1, $5, $10 y $20)
   const patronesVibracion = {
-    '1usd': [100],
-    '5usd': [100, 150, 100],
-    '10usd': [400, 150, 100],
-    '20usd': [400]
+    '1usd': [150],
+    '5usd': [150, 150, 150],
+    '10usd': [500, 150, 150],
+    '20usd': [500, 150, 150, 150, 150]
   };
 
   const nombresBilletes = {
@@ -124,7 +138,22 @@
 
   let modoTutorActivo = false;
 
+  // Función segura de vibración
+  function vibrarDispositivo(patron) {
+    if ("vibrate" in navigator) {
+      try {
+        navigator.vibrate(0); // Detener vibraciones previas
+        navigator.vibrate(patron);
+      } catch (e) {
+        console.log("Error al intentar vibrar:", e);
+      }
+    }
+  }
+
   async function iniciarCamara() {
+    // Gestos iniciales obligatorios para habilitar audio y vibración en móviles
+    vibrarDispositivo(50);
+    
     document.getElementById('btn-start').style.display = 'none';
     const status = document.getElementById('status');
     status.textContent = 'Cargando modelo y cámara...';
@@ -141,6 +170,15 @@
     window.requestAnimationFrame(loop);
 
     document.getElementById("webcam-container").appendChild(webcam.canvas);
+    
+    labelContainer = document.getElementById("label-container");
+    labelContainer.innerHTML = "";
+    for (let i = 0; i < maxPredictions; i++) {
+        const div = document.createElement("div");
+        div.className = "label-row";
+        labelContainer.appendChild(div);
+    }
+
     status.textContent = 'Modo Escaneo activo';
   }
 
@@ -157,13 +195,17 @@
       const nombreClase = prediction[i].className;
       const probabilidad = prediction[i].probability;
 
-      let llaveClase = "";
-      if (nombreClase === "$1" || nombreClase === "1usd") llaveClase = "1usd";
-      else if (nombreClase === "$5" || nombreClase === "5usd") llaveClase = "5usd";
-      else if (nombreClase === "$10" || nombreClase === "10usd") llaveClase = "10usd";
-      else if (nombreClase === "$20" || nombreClase === "20usd") llaveClase = "20usd";
+      labelContainer.childNodes[i].innerHTML = `<span>${nombreClase}</span> <span>${(probabilidad * 100).toFixed(0)}%</span>`;
 
-      if (llaveClase !== "" && probabilidad >= 0.85) {
+      const nombreLimpio = nombreClase.toLowerCase().trim();
+      let llaveClase = "";
+      
+      if (nombreLimpio.includes("1") && !nombreLimpio.includes("10")) llaveClase = "1usd";
+      else if (nombreLimpio.includes("5")) llaveClase = "5usd";
+      else if (nombreLimpio.includes("10")) llaveClase = "10usd";
+      else if (nombreLimpio.includes("20")) llaveClase = "20usd";
+
+      if (llaveClase !== "" && probabilidad >= 0.80) {
         ejecutarDeteccionTM(llaveClase, probabilidad);
       }
     }
@@ -171,6 +213,8 @@
 
   function toggleModoTutor() {
     modoTutorActivo = !modoTutorActivo;
+    vibrarDispositivo(50);
+
     const btn = document.getElementById('toggle-tutor');
     const panel = document.getElementById('panel-tutor');
     const status = document.getElementById('status');
@@ -189,9 +233,8 @@
   }
 
   function probarVibracion(claseBillete) {
-    if ('vibrate' in navigator) {
-      navigator.vibrate(patronesVibracion[claseBillete]);
-    }
+    // Activar respuesta táctil al tocar el botón del modo tutor
+    vibrarDispositivo(patronesVibracion[claseBillete]);
 
     const mensaje = new SpeechSynthesisUtterance(nombresBilletes[claseBillete]);
     mensaje.lang = 'es-ES';
@@ -199,7 +242,7 @@
   }
 
   function ejecutarDeteccionTM(claseDetectada, probabilidad) {
-    if (probabilidad < 0.85) return;
+    if (probabilidad < 0.80) return;
     if (ultimaClaseDetectada === claseDetectada) return;
 
     ultimaClaseDetectada = claseDetectada;
@@ -207,9 +250,7 @@
     const status = document.getElementById('status');
     status.textContent = `Detectado: ${nombresBilletes[claseDetectada]}`;
 
-    if ('vibrate' in navigator) {
-      navigator.vibrate(patronesVibracion[claseDetectada]);
-    }
+    vibrarDispositivo(patronesVibracion[claseDetectada]);
 
     if (modoTutorActivo) {
       const audio = new SpeechSynthesisUtterance(nombresBilletes[claseDetectada]);
