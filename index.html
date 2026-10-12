@@ -1,0 +1,226 @@
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lector de Billetes Accesible</title>
+  
+  <!-- Carga de Librerías de Teachable Machine y TensorFlow.js -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8.3/dist/teachablemachine-image.min.js"></script>
+
+  <style>
+    :root {
+      --bg: #121212;
+      --card: #1e1e1e;
+      --text: #ffffff;
+      --accent: #2196f3;
+    }
+    
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      margin: 0;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    h1 { text-align: center; font-size: 1.5rem; }
+
+    .btn-large {
+      width: 100%;
+      max-width: 400px;
+      padding: 20px;
+      margin: 10px 0;
+      font-size: 1.2rem;
+      font-weight: bold;
+      color: white;
+      background-color: var(--card);
+      border: 2px solid var(--accent);
+      border-radius: 12px;
+      cursor: pointer;
+    }
+
+    .btn-large:focus {
+      outline: 4px solid #ffeb3b;
+    }
+
+    .tutor-panel {
+      width: 100%;
+      max-width: 400px;
+      background: var(--card);
+      padding: 15px;
+      border-radius: 12px;
+      margin-top: 20px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .hidden { display: none; }
+    
+    #status {
+      font-size: 1.3rem;
+      font-weight: bold;
+      color: #4caf50;
+      margin: 15px 0;
+      text-align: center;
+    }
+
+    #webcam-container {
+      margin: 10px 0;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Detector de Billetes</h1>
+
+  <button id="btn-start" class="btn-large" onclick="iniciarCamara()">Iniciar Cámara Detector</button>
+
+  <div id="status" aria-live="polite" role="status">Presiona "Iniciar Cámara Detector"</div>
+
+  <div id="webcam-container"></div>
+
+  <button id="toggle-tutor" class="btn-large" aria-pressed="false" onclick="toggleModoTutor()">
+    Activar Modo Tutor (Entrenamiento)
+  </button>
+
+  <div id="panel-tutor" class="tutor-panel hidden" aria-label="Panel de práctica de vibraciones">
+    <p style="grid-column: 1 / -1; margin: 0 0 10px 0; text-align: center;">
+      Toca cualquier billete para sentir su vibración:
+    </p>
+    <button class="btn-large" style="margin:0;" onclick="probarVibracion('1usd')">Práctica $1</button>
+    <button class="btn-large" style="margin:0;" onclick="probarVibracion('5usd')">Práctica $5</button>
+    <button class="btn-large" style="margin:0;" onclick="probarVibracion('10usd')">Práctica $10</button>
+    <button class="btn-large" style="margin:0;" onclick="probarVibracion('20usd')">Práctica $20</button>
+  </div>
+
+<script>
+  const URL = "./"; 
+  let model, webcam, maxPredictions;
+  let ultimaClaseDetectada = null;
+
+  // Patrones de vibración únicamente para 4 clases ($1, $5, $10 y $20)
+  const patronesVibracion = {
+    '1usd': [100],
+    '5usd': [100, 150, 100],
+    '10usd': [400, 150, 100],
+    '20usd': [400]
+  };
+
+  const nombresBilletes = {
+    '1usd': 'Un dólar',
+    '5usd': 'Cinco dólares',
+    '10usd': 'Diez dólares',
+    '20usd': 'Veinte dólares'
+  };
+
+  let modoTutorActivo = false;
+
+  async function iniciarCamara() {
+    document.getElementById('btn-start').style.display = 'none';
+    const status = document.getElementById('status');
+    status.textContent = 'Cargando modelo y cámara...';
+
+    const modelURL = URL + "model.json";
+    const metadataURL = URL + "metadata.json";
+
+    model = await tmImage.load(modelURL, metadataURL);
+    maxPredictions = model.getTotalClasses();
+
+    webcam = new tmImage.Webcam(300, 300, true);
+    await webcam.setup();
+    await webcam.play();
+    window.requestAnimationFrame(loop);
+
+    document.getElementById("webcam-container").appendChild(webcam.canvas);
+    status.textContent = 'Modo Escaneo activo';
+  }
+
+  async function loop() {
+    webcam.update();
+    await predict();
+    window.requestAnimationFrame(loop);
+  }
+
+  async function predict() {
+    const prediction = await model.predict(webcam.canvas);
+
+    for (let i = 0; i < prediction.length; i++) {
+      const nombreClase = prediction[i].className;
+      const probabilidad = prediction[i].probability;
+
+      let llaveClase = "";
+      if (nombreClase === "$1" || nombreClase === "1usd") llaveClase = "1usd";
+      else if (nombreClase === "$5" || nombreClase === "5usd") llaveClase = "5usd";
+      else if (nombreClase === "$10" || nombreClase === "10usd") llaveClase = "10usd";
+      else if (nombreClase === "$20" || nombreClase === "20usd") llaveClase = "20usd";
+
+      if (llaveClase !== "" && probabilidad >= 0.85) {
+        ejecutarDeteccionTM(llaveClase, probabilidad);
+      }
+    }
+  }
+
+  function toggleModoTutor() {
+    modoTutorActivo = !modoTutorActivo;
+    const btn = document.getElementById('toggle-tutor');
+    const panel = document.getElementById('panel-tutor');
+    const status = document.getElementById('status');
+
+    if (modoTutorActivo) {
+      btn.setAttribute('aria-pressed', 'true');
+      btn.textContent = 'Desactivar Modo Tutor';
+      panel.classList.remove('hidden');
+      status.textContent = 'Modo Tutor activado. Toca las opciones para practicar.';
+    } else {
+      btn.setAttribute('aria-pressed', 'false');
+      btn.textContent = 'Activar Modo Tutor (Entrenamiento)';
+      panel.classList.add('hidden');
+      status.textContent = 'Modo Escaneo activo';
+    }
+  }
+
+  function probarVibracion(claseBillete) {
+    if ('vibrate' in navigator) {
+      navigator.vibrate(patronesVibracion[claseBillete]);
+    }
+
+    const mensaje = new SpeechSynthesisUtterance(nombresBilletes[claseBillete]);
+    mensaje.lang = 'es-ES';
+    window.speechSynthesis.speak(mensaje);
+  }
+
+  function ejecutarDeteccionTM(claseDetectada, probabilidad) {
+    if (probabilidad < 0.85) return;
+    if (ultimaClaseDetectada === claseDetectada) return;
+
+    ultimaClaseDetectada = claseDetectada;
+
+    const status = document.getElementById('status');
+    status.textContent = `Detectado: ${nombresBilletes[claseDetectada]}`;
+
+    if ('vibrate' in navigator) {
+      navigator.vibrate(patronesVibracion[claseDetectada]);
+    }
+
+    if (modoTutorActivo) {
+      const audio = new SpeechSynthesisUtterance(nombresBilletes[claseDetectada]);
+      audio.lang = 'es-ES';
+      window.speechSynthesis.speak(audio);
+    }
+
+    setTimeout(() => {
+      ultimaClaseDetectada = null;
+    }, 2500);
+  }
+</script>
+</body>
+</html>
