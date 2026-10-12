@@ -98,7 +98,6 @@
   <h1>Detector de Billetes</h1>
 
   <button id="btn-start" class="btn-large" onclick="iniciarCamara()">Iniciar Cámara Detector</button>
-  <button id="btn-switch" class="btn-large hidden" onclick="cambiarCamara()">Girar Cámara 🔄</button>
 
   <div id="status" aria-live="polite" role="status">Presiona "Iniciar Cámara Detector"</div>
 
@@ -123,8 +122,6 @@
   const URL = "./"; 
   let model, webcam, labelContainer, maxPredictions;
   let ultimaClaseDetectada = null;
-  let usarCamaraTrasera = true;
-  let cambiandoCamara = false;
 
   const patronesVibracion = {
     '1usd': [150],
@@ -157,7 +154,6 @@
     vibrarDispositivo(50);
     
     document.getElementById('btn-start').style.display = 'none';
-    document.getElementById('btn-switch').classList.remove('hidden');
     
     const status = document.getElementById('status');
     status.textContent = 'Cargando modelo y cámara...';
@@ -168,6 +164,7 @@
     model = await tmImage.load(modelURL, metadataURL);
     maxPredictions = model.getTotalClasses();
 
+    // Configuración exclusiva para cámara trasera (facingMode: environment)
     webcam = new tmImage.Webcam(300, 300, false);
     await webcam.setup({ facingMode: "environment" });
     await webcam.play();
@@ -184,44 +181,6 @@
     }
 
     status.textContent = 'Modo Escaneo activo';
-  }
-
-  async function cambiarCamara() {
-    if (!webcam || cambiandoCamara) return;
-    cambiandoCamara = true;
-    vibrarDispositivo(50);
-
-    const status = document.getElementById('status');
-    status.textContent = 'Cambiando cámara...';
-
-    try {
-      await webcam.stop();
-      
-      if (webcam.webcam && webcam.webcam.srcObject) {
-        const stream = webcam.webcam.srcObject;
-        const tracks = stream.getTracks();
-        tracks.forEach(track => track.stop());
-      }
-
-      const container = document.getElementById("webcam-container");
-      container.innerHTML = "";
-
-      usarCamaraTrasera = !usarCamaraTrasera;
-      const modo = usarCamaraTrasera ? "environment" : "user";
-
-      webcam = new tmImage.Webcam(300, 300, !usarCamaraTrasera);
-      await webcam.setup({ facingMode: modo });
-      await webcam.play();
-
-      container.appendChild(webcam.canvas);
-      status.textContent = 'Modo Escaneo activo';
-
-    } catch (error) {
-      console.error("Error al cambiar cámara:", error);
-      status.textContent = 'Error al cambiar la cámara';
-    } finally {
-      cambiandoCamara = false;
-    }
   }
 
   async function loop() {
