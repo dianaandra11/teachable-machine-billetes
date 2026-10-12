@@ -97,6 +97,7 @@
   <h1>Detector de Billetes</h1>
 
   <button id="btn-start" class="btn-large" onclick="iniciarCamara()">Iniciar Cámara Detector</button>
+  <button id="btn-switch" class="btn-large hidden" onclick="cambiarCamara()">Girar Cámara 🔄</button>
 
   <div id="status" aria-live="polite" role="status">Presiona "Iniciar Cámara Detector"</div>
 
@@ -121,6 +122,7 @@
   const URL = "./"; 
   let model, webcam, labelContainer, maxPredictions;
   let ultimaClaseDetectada = null;
+  let usarCamaraTrasera = true; // Por defecto inicia con la trasera
 
   const patronesVibracion = {
     '1usd': [150],
@@ -138,11 +140,10 @@
 
   let modoTutorActivo = false;
 
-  // Función segura de vibración
   function vibrarDispositivo(patron) {
     if ("vibrate" in navigator) {
       try {
-        navigator.vibrate(0); // Detener vibraciones previas
+        navigator.vibrate(0);
         navigator.vibrate(patron);
       } catch (e) {
         console.log("Error al intentar vibrar:", e);
@@ -151,10 +152,11 @@
   }
 
   async function iniciarCamara() {
-    // Gestos iniciales obligatorios para habilitar audio y vibración en móviles
     vibrarDispositivo(50);
     
     document.getElementById('btn-start').style.display = 'none';
+    document.getElementById('btn-switch').classList.remove('hidden');
+    
     const status = document.getElementById('status');
     status.textContent = 'Cargando modelo y cámara...';
 
@@ -164,8 +166,9 @@
     model = await tmImage.load(modelURL, metadataURL);
     maxPredictions = model.getTotalClasses();
 
-    webcam = new tmImage.Webcam(300, 300, true);
-    await webcam.setup();
+    // Configuración para cámara trasera sin modo espejo
+    webcam = new tmImage.Webcam(300, 300, false);
+    await webcam.setup({ facingMode: "environment" });
     await webcam.play();
     window.requestAnimationFrame(loop);
 
@@ -178,6 +181,26 @@
         div.className = "label-row";
         labelContainer.appendChild(div);
     }
+
+    status.textContent = 'Modo Escaneo activo';
+  }
+
+  // Función para alternar entre cámara trasera y delantera
+  async function cambiarCamara() {
+    if (!webcam) return;
+    vibrarDispositivo(50);
+
+    const status = document.getElementById('status');
+    status.textContent = 'Cambiando cámara...';
+
+    await webcam.stop();
+    usarCamaraTrasera = !usarCamaraTrasera;
+    const modo = usarCamaraTrasera ? "environment" : "user";
+
+    // Si es la delantera (user) aplicamos espejo (true), si es la trasera (environment) no (false)
+    webcam.flip = !usarCamaraTrasera;
+    await webcam.setup({ facingMode: modo });
+    await webcam.play();
 
     status.textContent = 'Modo Escaneo activo';
   }
@@ -233,7 +256,6 @@
   }
 
   function probarVibracion(claseBillete) {
-    // Activar respuesta táctil al tocar el botón del modo tutor
     vibrarDispositivo(patronesVibracion[claseBillete]);
 
     const mensaje = new SpeechSynthesisUtterance(nombresBilletes[claseBillete]);
